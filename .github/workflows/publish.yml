@@ -88,17 +88,22 @@ jobs:
         run: npm ci
 
       - name: Validate bootstrap npm authentication
+        if: github.ref_name == '0.1.0'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
-            npm whoami --registry=https://registry.npmjs.org/
-          fi
+        run: npm whoami --registry=https://registry.npmjs.org/
+
+      - name: Stage first release
+        if: github.ref_name == '0.1.0'
+        # npm currently has known direct-publish failures with bypass-2FA granular
+        # tokens. Staging is the official non-interactive bootstrap path: this job
+        # creates provenance, then a maintainer approves the staged package with 2FA.
+        run: npm stage publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_MODE: 'true'
 
       - name: Release
-        # Publishes to npm with a provenance attestation (requires id-token: write above).
-        # NODE_AUTH_TOKEN is used only for the first bootstrap publication. After
-        # Trusted Publishing is configured, remove the NPM_TOKEN repository secret.
+        if: github.ref_name != '0.1.0'
+        # After 0.1.0 exists, releases use npm Trusted Publishing (OIDC) directly.
         run: npm run release
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
