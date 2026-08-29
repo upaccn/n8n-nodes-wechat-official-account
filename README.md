@@ -78,21 +78,26 @@ App Secret 以密码字段保存。
 
 ### Access Token
 
-节点使用微信 Stable Access Token：
+节点使用微信 Stable Access Token，但不在插件内部维护长期 Token 状态：
 
-- 正常 Token 生命周期交给 n8n Credential 管理；
-- 微信经常通过 HTTP 200 + JSON `errcode` 返回 Token 失效，而不是 HTTP 401；
-- 遇到 `40001`、`40014`、`42001`、`42007` 等明确 Token 错误时，节点会执行一次 Stable Token 恢复，并且只重试一次原请求；
-- 强制刷新在同一进程内至少间隔 30 秒，避免反复刷新；
-- Access Token 不写入 Workflow JSON、节点输出或日志。
+- Credential 只保存 App ID 和 App Secret；
+- 每次该 Node 执行第一次调用微信时，以 `force_refresh: false` 获取当前 Stable Access Token；
+- 同一次 Node 执行内复用该 Token；
+- 不做进程级 Token Cache、TTL、强制刷新、Cooldown 或 Token 失效自愈；
+- Access Token 不写入 Workflow JSON、Credential、节点输出或日志。
 
-## 重试策略
+微信 Stable Token 的普通模式在 Token 有效期内重复调用不会轮换 Token，因此这种方式牺牲极少的请求开销，换取更少的状态和更低的维护复杂度。
 
-这个项目不会简单地“失败就重试三次”。
+## 请求策略
 
-- **读取类 / 幂等操作**：仅对网络异常、HTTP 429、HTTP 5xx 做有限退避重试；
-- **明确 Token 失效**：恢复 Token 后重试一次，因为微信已经明确拒绝了原请求；
-- **创建草稿、上传素材、提交发布等写操作**：如果网络结果未知，默认不自动重放，避免产生重复草稿、重复素材或重复发布。
+节点本身不做自动重试：
+
+- 每个微信请求只发送一次；
+- Token 错误直接返回微信 `errcode` / `errmsg`；
+- 网络失败不自动重试；
+- 创建草稿、上传素材、提交发布等写操作不会因为网络结果未知而被自动重放。
+
+如果业务确实需要等待、重试或报警，应在 n8n Workflow 中显式配置，让恢复逻辑可见、可控、可审计。
 
 ## 输出结构
 
@@ -124,7 +129,7 @@ n8n-nodes-wechat-official-account
 
 ## 兼容性
 
-首个 `0.1.0` 版本基于以下环境开发和验证：
+稳定版 `1.0.0` 基于以下环境开发和验证：
 
 - Node.js 24.18.0
 - `@n8n/node-cli` 0.45.5
@@ -180,8 +185,9 @@ npm run build
 - 尽量使用 n8n 原生能力；
 - 不记录敏感信息；
 - 不隐藏业务逻辑；
+- 不增加跨执行缓存、自动重试和兜底恢复；
 - 不为“可能有一天会用”提前增加接口；
-- 新能力先经过真实 Workflow 验证，再进入正式节点。
+- `1.0.0` 后进入低维护模式：只有生产 Bug、上游 Breaking Change 或重复真实需求才修改。
 
 更多技术细节：
 

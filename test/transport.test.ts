@@ -1,11 +1,7 @@
 import type { IExecuteFunctions, INode } from 'n8n-workflow';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { clearTokenCache, getStableAccessToken } from '../nodes/WechatOfficialAccount/transport/TokenManager';
-import {
-	isTransientTransportError,
-	WechatClient,
-} from '../nodes/WechatOfficialAccount/transport/WechatClient';
+import { WechatClient } from '../nodes/WechatOfficialAccount/transport/WechatClient';
 
 const testNode: INode = {
 	id: 'test',
@@ -26,112 +22,57 @@ function makeContext(httpRequest: ReturnType<typeof vi.fn>): IExecuteFunctions {
 const credentials = {
 	appId: 'wx-test',
 	appSecret: 'secret-test',
-	accessToken: 'credential-token',
 };
 
-beforeEach(() => clearTokenCache());
-
-describe('stable token manager', () => {
-	it('uses the token already managed by the n8n credential', async () => {
-		const httpRequest = vi.fn();
-		const context = makeContext(httpRequest);
-
-		expect(await getStableAccessToken(context, credentials)).toBe('credential-token');
-		expect(httpRequest).not.toHaveBeenCalled();
-	});
-
-	it('forces a stable-token refresh only for explicit recovery', async () => {
-		const httpRequest = vi.fn().mockResolvedValue({ access_token: 'token-b', expires_in: 7200 });
-		const context = makeContext(httpRequest);
-
-		expect(await getStableAccessToken(context, credentials, true)).toBe('token-b');
-		expect(httpRequest).toHaveBeenCalledTimes(1);
-		expect(httpRequest.mock.calls[0][0].body.force_refresh).toBe(true);
-	});
-
-	it('does not force-refresh twice inside the 30 second recovery cooldown', async () => {
+describe('stable token lifecycle', () => {
+	it('gets the current stable token once per client and reuses it', async () => {
 		const httpRequest = vi
 			.fn()
-			.mockResolvedValueOnce({ access_token: 'token-b', expires_in: 7200 })
-			.mockResolvedValueOnce({ access_token: 'token-c', expires_in: 7200 });
-		const context = makeContext(httpRequest);
+			.mockResolvedValueOnce({ access_token: 'token-a', expires_in: 7200 })
+			.mockResolvedValueOnce({ total_count: 1 })
+			.mockResolvedValueOnce({ total_count: 2 });
+		const client = new WechatClient(makeContext(httpRequest), credentials);
 
-		await getStableAccessToken(context, credentials, true);
-		expect(await getStableAccessToken(context, credentials, true)).toBe('token-c');
-		expect(httpRequest.mock.calls[0][0].body.force_refresh).toBe(true);
-		expect(httpRequest.mock.calls[1][0].body.force_refresh).toBe(false);
-	});
-});
-
-describe('transport retry classification', () => {
-	it('retries only network, 429, and server-side failures', () => {
-		expect(isTransientTransportError({ code: 'ECONNRESET' })).toBe(true);
-		expect(isTransientTransportError({ response: { status: 429 } })).toBe(true);
-		expect(isTransientTransportError({ response: { status: 503 } })).toBe(true);
-		expect(isTransientTransportError({ response: { status: 400 } })).toBe(false);
-		expect(isTransientTransportError({ response: { status: 403 } })).toBe(false);
-	});
-});
-
-describe('request safety', () => {
-	it('refreshes and retries once after an explicit token error', async () => {
-		const httpRequest = vi
-			.fn()
-			.mockResolvedValueOnce({ errcode: 40001, errmsg: 'invalid credential' })
-			.mockResolvedValueOnce({ access_token: 'token-b', expires_in: 7200 })
-			.mockResolvedValueOnce({ errcode: 0, media_id: 'ok' });
-		const context = makeContext(httpRequest);
-		const client = new WechatClient(context, credentials);
-
-		const result = await client.requestJson({
-			path: '/cgi-bin/draft/add',
-			operation: 'draft.create',
-			body: { articles: [] },
-		});
-
-		expect(result.media_id).toBe('ok');
-		expect(httpRequest).toHaveBeenCalledTimes(3);
-		expect(httpRequest.mock.calls[1][0].body.force_refresh).toBe(true);
-	});
-
-	it('retries a safe read after a transient transport failure', async () => {
-		const httpRequest = vi
-			.fn()
-			.mockRejectedValueOnce(Object.assign(new Error('socket reset'), { code: 'ECONNRESET' }))
-			.mockResolvedValueOnce({ total_count: 1, item_count: 0, item: [] });
-		const context = makeContext(httpRequest);
-		const client = new WechatClient(context, credentials);
-
-		const result = await client.requestJson({
+		await client.requestJson({
 			path: '/cgi-bin/draft/batchget',
 			operation: 'draft.getMany',
-			body: { offset: 0, count: 20, no_content: 1 },
-			safeToRetry: true,
+			body: { offset: 0, count: 20 },
 		});
-		expect(result.total_count).toBe(1);
-		expect(httpRequest).toHaveBeenCalledTimes(2);
+		await client.requestJson({
+			path: '/cgi-bin/freepublish/batchget',
+			operation: 'publish.getMany',
+			body: { offset: 0, count: 20 },
+		});
+
+		expect(httpRequest).toHaveBeenCalledTimes(3);
+		expect(httpRequest.mock.calls[0][0].url).toMatch(/\/cgi-bin\/stable_token$/);
+		expect(httpRequest.mock.calls[0][0].body.force_refresh).toBe(false);
+		expect(httpRequest.mock.calls[1][0].qs.access_token).toBe('token-a');
+		expect(httpRequest.mock.calls[2][0].qs.access_token).toBe('token-a');
 	});
 
-	it('does not retry a safe read after a non-transient HTTP failure', async () => {
-		const httpRequest = vi.fn().mockRejectedValueOnce({ response: { status: 403 } });
-		const context = makeContext(httpRequest);
-		const client = new WechatClient(context, credentials);
+	it('surfaces a stable-token API error without retrying', async () => {
+		const httpRequest = vi.fn().mockResolvedValue({ errcode: 40125, errmsg: 'invalid appsecret' });
+		const client = new WechatClient(makeContext(httpRequest), credentials);
 
 		await expect(
 			client.requestJson({
 				path: '/cgi-bin/draft/batchget',
 				operation: 'draft.getMany',
-				body: { offset: 0, count: 20, no_content: 1 },
-				safeToRetry: true,
+				body: { offset: 0, count: 20 },
 			}),
-		).rejects.toThrow('not classified as transient');
+		).rejects.toThrow('40125');
 		expect(httpRequest).toHaveBeenCalledTimes(1);
 	});
+});
 
-	it('does not replay a write after an unknown transport failure', async () => {
-		const httpRequest = vi.fn().mockRejectedValueOnce(new Error('socket reset'));
-		const context = makeContext(httpRequest);
-		const client = new WechatClient(context, credentials);
+describe('request policy', () => {
+	it('does not recover or replay after a WeChat token error', async () => {
+		const httpRequest = vi
+			.fn()
+			.mockResolvedValueOnce({ access_token: 'token-a', expires_in: 7200 })
+			.mockResolvedValueOnce({ errcode: 40001, errmsg: 'invalid credential' });
+		const client = new WechatClient(makeContext(httpRequest), credentials);
 
 		await expect(
 			client.requestJson({
@@ -139,8 +80,24 @@ describe('request safety', () => {
 				operation: 'draft.create',
 				body: { articles: [] },
 			}),
-		).rejects.toThrow('request was not replayed');
+		).rejects.toThrow('40001');
+		expect(httpRequest).toHaveBeenCalledTimes(2);
+	});
 
-		expect(httpRequest).toHaveBeenCalledTimes(1);
+	it('does not retry a transport failure', async () => {
+		const httpRequest = vi
+			.fn()
+			.mockResolvedValueOnce({ access_token: 'token-a', expires_in: 7200 })
+			.mockRejectedValueOnce(Object.assign(new Error('socket reset'), { code: 'ECONNRESET' }));
+		const client = new WechatClient(makeContext(httpRequest), credentials);
+
+		await expect(
+			client.requestJson({
+				path: '/cgi-bin/draft/add',
+				operation: 'draft.create',
+				body: { articles: [] },
+			}),
+		).rejects.toThrow('did not retry');
+		expect(httpRequest).toHaveBeenCalledTimes(2);
 	});
 });

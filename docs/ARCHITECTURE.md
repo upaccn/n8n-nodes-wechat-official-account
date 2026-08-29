@@ -1,48 +1,59 @@
 # Architecture
 
-## Goals
+## Goal
 
-This package is a small WeChat Official Account transport layer for n8n. Business policy such as scheduling, approval, content generation, account selection, and AI-agent permissions belongs in workflows, not in this node.
+This package is a small WeChat Official Account adapter for n8n. Scheduling, approval, content generation, account selection, and AI-agent permissions belong in workflows, not in this node.
 
 ## Layers
 
-- `credentials/`: App ID/App Secret credential and n8n-managed expirable Stable Access Token.
-- `nodes/WechatOfficialAccount/WechatOfficialAccountPlatform.node.ts`: registered n8n node identity and UI metadata.
-- `nodes/WechatOfficialAccount/WechatOfficialAccount.node.ts`: shared operation implementation used by the registered platform node.
-- `nodes/WechatOfficialAccount/payloads.ts`: article payload mapping.
-- `nodes/WechatOfficialAccount/transport/TokenManager.ts`: recovery token cache for explicit WeChat token rejection.
-- `nodes/WechatOfficialAccount/transport/WechatClient.ts`: fixed-host HTTP transport, bounded token recovery, read retries, and multipart uploads.
-- `nodes/WechatOfficialAccount/transport/WechatError.ts`: error classification and sanitized diagnostics.
+- `credentials/`: App ID and App Secret only.
+- `nodes/WechatOfficialAccount/WechatOfficialAccountPlatform.node.ts`: the single registered n8n node and all V1 operations.
+- `nodes/WechatOfficialAccount/payloads.ts`: article payload normalization.
+- `nodes/WechatOfficialAccount/transport/WechatClient.ts`: fixed-host WeChat HTTP transport and multipart upload.
+- `nodes/WechatOfficialAccount/transport/WechatError.ts`: sanitized API diagnostics.
 
 ## Authentication
 
-There is one normal token lifecycle:
+Authentication deliberately has no persistent token state in the node package.
 
-1. The credential uses n8n's expirable hidden credential field and `preAuthentication` to obtain a Stable Access Token from `/cgi-bin/stable_token`.
-2. Normal node calls use that n8n-managed token directly. The node does not make a second token request on startup or on every execution.
-3. WeChat can report an invalid/expired token as HTTP 200 JSON. If a known token error is returned, the node performs one stable-token recovery and retries the explicitly rejected API call once.
-4. A recovered token is kept only in process memory for its reported lifetime minus a five-minute margin. Forced rotations are kept at least 30 seconds apart in-process.
-5. Tokens, App Secrets, article bodies, and binary media are never written to workflow JSON or logs.
+1. The credential stores only App ID and App Secret.
+2. On the first WeChat call of a node execution, `WechatClient` requests `/cgi-bin/stable_token` with `force_refresh: false`.
+3. The returned token is reused only by that `WechatClient` instance for the rest of the node execution.
+4. A later node execution asks WeChat for the current stable token again. Normal stable-token mode returns the existing valid token rather than rotating it.
+5. There is no process-global token cache, TTL bookkeeping, forced refresh, cooldown, or token-error recovery path.
+6. App Secrets, tokens, article bodies, and binary media are never written to workflow output or logs.
 
-The credential uses n8n's `restrictToSupportedNodes` mechanism and is restricted to the package node short name `wechatOfficialAccountPlatform`. Both the short name and the registered display name are intentionally unique. Current n8n community-package persistence stores `description.displayName` in the global-primary-key column `installed_nodes.name`, so reusing another installed community node's display name prevents side-by-side installation even when the short names differ. The credential is not exposed as a generic HTTP Request credential.
+The credential is restricted to the package node short name `wechatOfficialAccountPlatform` and is not exposed as a generic HTTP Request credential.
 
 ## API surface
 
-V1 exposes only first-class operations for Media, Draft, and Publish. There is no generic Raw API fallback. A new WeChat endpoint is added only when there is a real recurring use case and it can be modeled, validated, documented, and tested explicitly.
+V1 exposes only first-class operations for Media, Draft, and Publish. There is no generic Raw API fallback. A new WeChat endpoint is added only after a recurring real workflow need appears.
 
-## Retry policy
+## Request policy
 
-Unknown network outcomes and explicit API rejections are treated differently.
+The node sends each request once.
 
-- Explicit token rejection: one token recovery and one retry because WeChat rejected the original request.
-- Read/idempotent transport failure: retry only transient network failures, HTTP 429, and HTTP 5xx, with bounded short backoff.
-- Configuration/client HTTP errors: no automatic retry.
-- Write transport failure: no automatic replay because the server may already have committed the write.
+- No automatic transport retry.
+- No automatic token-error replay.
+- No replay of writes after an unknown network outcome.
+- WeChat API errors are returned with their `errcode`/`errmsg` and a small set of useful hints.
+
+Retry, wait, alerting, and business recovery policies belong in the n8n workflow where they remain visible and auditable.
 
 ## Item model
 
-The node processes every input item independently and returns one linked output item per input item. Existing input JSON is retained and the WeChat response is nested under `wechat`. `pairedItem` preserves n8n item lineage.
+The node processes every input item independently and returns one linked output item per input item. Existing input JSON is retained, the WeChat response is nested under `wechat`, and `pairedItem` preserves n8n item lineage.
 
 ## Compatibility
 
-The repository follows the current official n8n community-node starter conventions and `@n8n/node-cli`. Production deployments pin exact package versions and re-run the repository gates before materially upgrading n8n.
+The persisted node short name remains `wechatOfficialAccountPlatform`, so the simplification does not change existing workflow identity. The repository follows the current official n8n community-node toolchain. Production deployments pin an exact package version.
+
+## Maintenance mode
+
+After `1.0.0`, this repository is intentionally low-maintenance. Changes are justified only by one of three triggers:
+
+1. a reproducible production bug;
+2. a breaking change in n8n or the WeChat API;
+3. a recurring real workflow need that cannot be cleanly handled outside the node.
+
+No speculative features, compatibility layers, caches, telemetry, schedulers, or automatic recovery systems are added without a concrete production requirement.

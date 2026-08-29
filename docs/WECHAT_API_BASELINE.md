@@ -11,8 +11,8 @@ Stable access token:
 - `POST https://api.weixin.qq.com/cgi-bin/stable_token`
 - request fields: `grant_type=client_credential`, `appid`, `secret`, optional `force_refresh`
 - normal token lifetime is reported by `expires_in` (commonly 7200 seconds)
-- this package refreshes five minutes before the reported expiry
-- `force_refresh` is reserved for explicit token-error recovery; repeated forced refreshes are throttled to at least 30 seconds in-process
+- the node requests the current stable token with `force_refresh: false` on the first WeChat call of each node execution and reuses it only within that execution
+- the package does not persist token state, force-refresh tokens, or implement token-error recovery
 
 Official documentation:
 
@@ -85,9 +85,7 @@ Common operational diagnostics are surfaced with targeted hints:
 - `45011`: calls are too frequent; reduce concurrency/back off.
 - `48001`: the target account is not authorized for that API; check account type, verification status, and interface permissions.
 
-Recognized token-related errors include `40001`, `40014`, `42001`, and `42007`. On an explicit token error the rejected API operation may be retried once after stable-token recovery because WeChat has already rejected that operation. Unknown network failures on non-idempotent writes are never blindly replayed.
-
-Read/list/status operations may use bounded retry for transient transport failures.
+Token-related errors such as `40001`, `40014`, `42001`, and `42007` are surfaced directly. The node does not force-refresh or replay the original operation. Network failures are also surfaced directly, including for read operations; retry policy belongs in the n8n workflow where it remains explicit. Unknown network failures on non-idempotent writes are never blindly replayed.
 
 ## Review policy
 

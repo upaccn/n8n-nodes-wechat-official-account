@@ -12,7 +12,7 @@ Never include real App Secrets, access tokens, workflow credentials, private wor
 
 - App Secret is a password credential.
 - Access tokens are not returned in node output or intentionally logged.
-- n8n manages the normal expirable access token; any recovery token is process-memory only and expires before the WeChat TTL.
+- Credentials store only App ID and App Secret. The node obtains the current Stable Access Token with `force_refresh: false` on first use and reuses it only within that node execution.
 - The node exposes only modeled Media, Draft, and Publish operations; there is no generic arbitrary-endpoint fallback.
 - Non-idempotent writes are not automatically replayed after unknown transport failures.
 - No external telemetry is included.

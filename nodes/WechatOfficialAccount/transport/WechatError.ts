@@ -3,8 +3,6 @@ import { NodeOperationError } from 'n8n-workflow';
 
 import type { WechatApiEnvelope } from './types';
 
-const TOKEN_ERROR_CODES = new Set([40001, 40014, 42001, 42007]);
-
 const ERROR_HINTS = new Map<number, string>([
 	[
 		40164,
@@ -23,10 +21,6 @@ const ERROR_HINTS = new Map<number, string>([
 		'This API is not authorized for the account. Check the account type, verification status, and the interface permissions shown in the WeChat Official Account backend.',
 	],
 ]);
-
-export function isWechatTokenError(code: number | undefined): boolean {
-	return code !== undefined && TOKEN_ERROR_CODES.has(code);
-}
 
 export function getWechatErrorHint(code: number | undefined): string | undefined {
 	return code === undefined ? undefined : ERROR_HINTS.get(code);
@@ -50,25 +44,13 @@ export function createWechatApiError(
 	return new NodeOperationError(
 		node,
 		`WeChat API error${code !== undefined ? ` ${code}` : ''}: ${message}`,
-		{
-			description,
-		},
+		{ description },
 	);
 }
 
-export function createWechatTransportError(
-	node: INode,
-	operation: string,
-	safeToRetry: boolean,
-	transient: boolean,
-): NodeOperationError {
-	let message: string;
-	if (!safeToRetry) {
-		message = `Network result is unknown while calling WeChat for ${operation}; the request was not replayed to avoid duplicate writes`;
-	} else if (transient) {
-		message = `Temporary network error while calling WeChat for ${operation}; bounded retries were exhausted`;
-	} else {
-		message = `WeChat request failed for ${operation}; the error was not classified as transient and was not retried`;
-	}
-	return new NodeOperationError(node, message);
+export function createWechatTransportError(node: INode, operation: string): NodeOperationError {
+	return new NodeOperationError(
+		node,
+		`Network request failed while calling WeChat for ${operation}; the node did not retry the request`,
+	);
 }

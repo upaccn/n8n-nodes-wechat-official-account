@@ -3,7 +3,6 @@ export const WECHAT_API_BASE_URL = 'https://api.weixin.qq.com';
 export interface WechatCredentials {
 	appId: string;
 	appSecret: string;
-	accessToken: string;
 }
 
 export interface WechatApiEnvelope {
@@ -22,5 +21,4 @@ export interface JsonRequestOptions {
 	body?: Record<string, unknown>;
 	qs?: Record<string, string | number | boolean>;
 	operation: string;
-	safeToRetry?: boolean;
 }

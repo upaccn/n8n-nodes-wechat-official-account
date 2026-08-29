@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented here.
 
+## [1.0.0] - 2026-08-29
+
+### Changed
+- Froze the V1 feature surface around Media, Draft, and Publish.
+- Simplified Stable Access Token handling: each node execution obtains the current stable token once with `force_refresh: false` and reuses it only inside that node execution.
+- Removed process-global token cache, TTL bookkeeping, forced-refresh recovery, cooldown state, and automatic request retries.
+- Collapsed the temporary node wrapper into one registered node implementation while preserving the persisted node short name `wechatOfficialAccountPlatform`.
+- Restored the user-facing display name to `WeChat Official Account` after the legacy community node was removed; the internal short name remains unchanged to avoid a pointless workflow migration.
+- Removed incremental TypeScript build metadata from the published package.
+
+### Maintenance
+- Entered low-maintenance mode. Future changes require a reproducible production bug, an upstream breaking change, or a recurring real workflow need.
+
 ## [0.1.2] - 2026-08-29
 
 ### Fixed

@@ -1,89 +1,41 @@
 import type { IExecuteFunctions, IHttpRequestOptions } from 'n8n-workflow';
-import { sleep } from 'n8n-workflow';
+import { NodeOperationError } from 'n8n-workflow';
 
-import { getStableAccessToken } from './TokenManager';
-import {
-	createWechatApiError,
-	createWechatTransportError,
-	isWechatTokenError,
-} from './WechatError';
+import { createWechatApiError, createWechatTransportError } from './WechatError';
 import type {
 	JsonRequestOptions,
+	StableTokenResponse,
 	WechatApiEnvelope,
 	WechatCredentials,
 } from './types';
 import { WECHAT_API_BASE_URL } from './types';
 
-const READ_RETRY_DELAYS_MS = [300, 800];
-const TRANSIENT_ERROR_CODES = new Set([
-	'ECONNRESET',
-	'ETIMEDOUT',
-	'ECONNREFUSED',
-	'EAI_AGAIN',
-	'ENOTFOUND',
-	'EPIPE',
-	'UND_ERR_CONNECT_TIMEOUT',
-]);
-
-function normalizeResponse(response: unknown): WechatApiEnvelope {
-	if (typeof response === 'string') {
-		try {
-			return JSON.parse(response) as WechatApiEnvelope;
-		} catch {
-			return { raw: response };
-		}
-	}
-	if (response && typeof response === 'object') return response as WechatApiEnvelope;
-	return { value: response };
-}
-
-export function isTransientTransportError(error: unknown): boolean {
-	if (!error || typeof error !== 'object') return false;
-	const candidate = error as {
-		code?: unknown;
-		statusCode?: unknown;
-		response?: { status?: unknown; statusCode?: unknown };
-		cause?: { code?: unknown };
-	};
-	const status =
-		typeof candidate.response?.status === 'number'
-			? candidate.response.status
-			: typeof candidate.response?.statusCode === 'number'
-				? candidate.response.statusCode
-				: typeof candidate.statusCode === 'number'
-					? candidate.statusCode
-					: undefined;
-	if (status !== undefined) return status === 429 || status >= 500;
-
-	const code =
-		typeof candidate.code === 'string'
-			? candidate.code
-			: typeof candidate.cause?.code === 'string'
-				? candidate.cause.code
-				: undefined;
-	return code !== undefined && TRANSIENT_ERROR_CODES.has(code);
-}
-
 export class WechatClient {
+	private accessToken?: string;
+
 	constructor(
 		private readonly context: IExecuteFunctions,
 		private readonly credentials: WechatCredentials,
 	) {}
 
 	async requestJson(options: JsonRequestOptions): Promise<WechatApiEnvelope> {
-		return await this.requestWithTokenRecovery(options, async (token) => {
-			const request: IHttpRequestOptions = {
-				method: 'POST',
-				url: `${WECHAT_API_BASE_URL}${options.path}`,
-				qs: {
-					...options.qs,
-					access_token: token,
-				},
-				json: true,
-			};
-			if (options.body !== undefined) request.body = options.body;
-			return await this.requestTransport(request, options.operation, options.safeToRetry ?? false);
-		});
+		const token = await this.getAccessToken();
+		const request: IHttpRequestOptions = {
+			method: 'POST',
+			url: `${WECHAT_API_BASE_URL}${options.path}`,
+			qs: {
+				...options.qs,
+				access_token: token,
+			},
+			json: true,
+		};
+		if (options.body !== undefined) request.body = options.body;
+
+		const response = await this.request(request, options.operation);
+		if (response.errcode !== undefined && response.errcode !== 0) {
+			throw createWechatApiError(this.context.getNode(), options.operation, response);
+		}
+		return response;
 	}
 
 	async uploadMedia(options: {
@@ -94,6 +46,7 @@ export class WechatClient {
 		mimeType: string;
 		qs?: Record<string, string | number | boolean>;
 	}): Promise<WechatApiEnvelope> {
+		const token = await this.getAccessToken();
 		const boundary = `----n8nWechat${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
 		const prefix = Buffer.from(
 			`--${boundary}\r\nContent-Disposition: form-data; name="media"; filename="${options.fileName.replace(/["\r\n]/g, '_')}"\r\nContent-Type: ${options.mimeType}\r\n\r\n`,
@@ -101,73 +54,73 @@ export class WechatClient {
 		);
 		const suffix = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
 		const body = Buffer.concat([prefix, options.buffer, suffix]);
-
-		return await this.requestWithTokenRecovery(
-			{
-				path: options.path,
-				operation: options.operation,
-				safeToRetry: false,
+		const request: IHttpRequestOptions = {
+			method: 'POST',
+			url: `${WECHAT_API_BASE_URL}${options.path}`,
+			qs: {
+				...options.qs,
+				access_token: token,
 			},
-			async (token) => {
-				const request: IHttpRequestOptions = {
-					method: 'POST',
-					url: `${WECHAT_API_BASE_URL}${options.path}`,
-					qs: {
-						...options.qs,
-						access_token: token,
-					},
-					headers: {
-						'Content-Type': `multipart/form-data; boundary=${boundary}`,
-						'Content-Length': String(body.length),
-					},
-					body,
-					json: true,
-				};
-				return await this.requestTransport(request, options.operation, false);
+			headers: {
+				'Content-Type': `multipart/form-data; boundary=${boundary}`,
+				'Content-Length': String(body.length),
 			},
-		);
-	}
+			body,
+			json: true,
+		};
 
-	private async requestWithTokenRecovery(
-		options: JsonRequestOptions,
-		request: (token: string) => Promise<WechatApiEnvelope>,
-	): Promise<WechatApiEnvelope> {
-		let token = await getStableAccessToken(this.context, this.credentials, false);
-		let response = await request(token);
-
-		if (response.errcode !== undefined && isWechatTokenError(response.errcode)) {
-			token = await getStableAccessToken(this.context, this.credentials, true);
-			response = await request(token);
-		}
-
+		const response = await this.request(request, options.operation);
 		if (response.errcode !== undefined && response.errcode !== 0) {
 			throw createWechatApiError(this.context.getNode(), options.operation, response);
 		}
 		return response;
 	}
 
-	private async requestTransport(
+	private async getAccessToken(): Promise<string> {
+		if (this.accessToken) return this.accessToken;
+
+		const response = (await this.request(
+			{
+				method: 'POST',
+				url: `${WECHAT_API_BASE_URL}/cgi-bin/stable_token`,
+				body: {
+					grant_type: 'client_credential',
+					appid: this.credentials.appId,
+					secret: this.credentials.appSecret,
+					force_refresh: false,
+				},
+				json: true,
+			},
+			'auth.stableToken',
+		)) as StableTokenResponse;
+
+		if (response.errcode !== undefined && response.errcode !== 0) {
+			throw createWechatApiError(this.context.getNode(), 'auth.stableToken', response);
+		}
+		if (!response.access_token) {
+			throw new NodeOperationError(
+				this.context.getNode(),
+				'WeChat stable token response did not contain an access token',
+			);
+		}
+
+		this.accessToken = response.access_token;
+		return this.accessToken;
+	}
+
+	private async request(
 		request: IHttpRequestOptions,
 		operation: string,
-		safeToRetry: boolean,
 	): Promise<WechatApiEnvelope> {
-		const attempts = safeToRetry ? READ_RETRY_DELAYS_MS.length + 1 : 1;
-		for (let attempt = 0; attempt < attempts; attempt++) {
-			try {
-				return normalizeResponse(await this.context.helpers.httpRequest(request));
-			} catch (error) {
-				const transient = isTransientTransportError(error);
-				if (!safeToRetry || !transient || attempt === attempts - 1) {
-					throw createWechatTransportError(
-						this.context.getNode(),
-						operation,
-						safeToRetry,
-						transient,
-					);
-				}
-				await sleep(READ_RETRY_DELAYS_MS[attempt]);
-			}
+		let response: unknown;
+		try {
+			response = await this.context.helpers.httpRequest(request);
+		} catch {
+			throw createWechatTransportError(this.context.getNode(), operation);
 		}
-		throw createWechatTransportError(this.context.getNode(), operation, safeToRetry, true);
+		if (!response || typeof response !== 'object') {
+			throw new NodeOperationError(this.context.getNode(), `WeChat returned a non-JSON response for ${operation}`);
+		}
+		return response as WechatApiEnvelope;
 	}
 }
