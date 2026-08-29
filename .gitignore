@@ -1,0 +1,6 @@
+dist
+node_modules
+
+# Leftovers from the interrupted initial scaffold; not part of the package.
+credentials/WechatOfficialAccountApi.credentials.ts
+nodes/WechatOfficialAccount/transport.ts
