@@ -9,9 +9,11 @@ import {
 } from '../nodes/WechatOfficialAccount/transport/WechatError';
 
 describe('node and credential identity', () => {
-	it('uses the globally unique registered node short name', () => {
+	it('uses globally unique persisted node identity fields', () => {
 		const node = new WechatOfficialAccountPlatform();
 		expect(node.description.name).toBe('wechatOfficialAccountPlatform');
+		expect(node.description.displayName).toBe('WeChat Official Account Platform');
+		expect(node.description.displayName).not.toBe('WeChat Official Account');
 	});
 
 	it('restricts the credential to the package node short name', () => {

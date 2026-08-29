@@ -24,7 +24,7 @@ There is one normal token lifecycle:
 4. A recovered token is kept only in process memory for its reported lifetime minus a five-minute margin. Forced rotations are kept at least 30 seconds apart in-process.
 5. Tokens, App Secrets, article bodies, and binary media are never written to workflow JSON or logs.
 
-The credential uses n8n's `restrictToSupportedNodes` mechanism and is restricted to the package node short name `wechatOfficialAccountPlatform`. The short name is intentionally unique across community packages because n8n stores `installed_nodes.name` as a global primary key. It is not exposed as a generic HTTP Request credential.
+The credential uses n8n's `restrictToSupportedNodes` mechanism and is restricted to the package node short name `wechatOfficialAccountPlatform`. Both the short name and the registered display name are intentionally unique. Current n8n community-package persistence stores `description.displayName` in the global-primary-key column `installed_nodes.name`, so reusing another installed community node's display name prevents side-by-side installation even when the short names differ. The credential is not exposed as a generic HTTP Request credential.
 
 ## API surface
 

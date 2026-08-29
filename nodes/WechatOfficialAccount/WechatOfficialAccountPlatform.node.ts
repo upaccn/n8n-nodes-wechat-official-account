@@ -9,7 +9,7 @@ const implementation = new WechatOfficialAccount();
 // eslint-disable-next-line @n8n/community-nodes/node-usable-as-tool
 export class WechatOfficialAccountPlatform implements INodeType {
 	description: INodeTypeDescription = {
-		displayName: 'WeChat Official Account',
+		displayName: 'WeChat Official Account Platform',
 		name: 'wechatOfficialAccountPlatform',
 		icon: {
 			light: 'file:../../icons/wechat-official-account.svg',
@@ -19,7 +19,7 @@ export class WechatOfficialAccountPlatform implements INodeType {
 		version: 1,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
 		description: 'Manage WeChat Official Account media, drafts, and publishing',
-		defaults: { name: 'WeChat Official Account' },
+		defaults: { name: 'WeChat Official Account Platform' },
 		inputs: [NodeConnectionTypes.Main],
 		outputs: [NodeConnectionTypes.Main],
 		credentials: [{ name: 'wechatOfficialAccountPlatformApi', required: true }],
