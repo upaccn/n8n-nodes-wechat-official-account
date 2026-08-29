@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-wechat-official-account",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A production-oriented n8n community node for WeChat Official Account media, drafts and publishing.",
   "license": "MIT",
   "homepage": "https://github.com/upaccn/n8n-nodes-wechat-official-account#readme",
@@ -45,7 +45,7 @@
       "dist/credentials/WechatOfficialAccountPlatformApi.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/WechatOfficialAccount/WechatOfficialAccount.node.js"
+      "dist/nodes/WechatOfficialAccount/WechatOfficialAccountPlatform.node.js"
     ]
   },
   "devDependencies": {

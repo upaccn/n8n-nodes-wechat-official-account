@@ -1,17 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
 import { WechatOfficialAccountPlatformApi } from '../credentials/WechatOfficialAccountPlatformApi.credentials';
+import { WechatOfficialAccountPlatform } from '../nodes/WechatOfficialAccount/WechatOfficialAccountPlatform.node';
 import {
 	getWechatErrorHint,
 	isWechatTokenError,
 	redactSensitiveText,
 } from '../nodes/WechatOfficialAccount/transport/WechatError';
 
-describe('credential scope', () => {
+describe('node and credential identity', () => {
+	it('uses the globally unique registered node short name', () => {
+		const node = new WechatOfficialAccountPlatform();
+		expect(node.description.name).toBe('wechatOfficialAccountPlatform');
+	});
+
 	it('restricts the credential to the package node short name', () => {
 		const credential = new WechatOfficialAccountPlatformApi();
 		expect(credential.restrictToSupportedNodes).toBe(true);
-		expect(credential.supportedNodes).toEqual(['wechatOfficialAccount']);
+		expect(credential.supportedNodes).toEqual(['wechatOfficialAccountPlatform']);
 	});
 });
 

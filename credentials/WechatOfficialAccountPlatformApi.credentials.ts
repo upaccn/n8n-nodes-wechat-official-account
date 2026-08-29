@@ -33,7 +33,7 @@ export class WechatOfficialAccountPlatformApi implements ICredentialType {
 
 	restrictToSupportedNodes = true as const;
 
-	supportedNodes = ['wechatOfficialAccount'];
+	supportedNodes = ['wechatOfficialAccountPlatform'];
 
 	properties: INodeProperties[] = [
 		{

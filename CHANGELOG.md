@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented here.
 
+## [0.1.1] - 2026-08-29
+
+### Fixed
+- Changed the internal n8n node short name to `wechatOfficialAccountPlatform` so this package can be installed side by side with older community WeChat packages. n8n stores community-node names as a global primary key, so reusing `wechatOfficialAccount` caused an installation constraint error.
+
 ## [0.1.0] - 2026-08-29
 
 ### Added

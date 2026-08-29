@@ -7,7 +7,8 @@ This package is a small WeChat Official Account transport layer for n8n. Busines
 ## Layers
 
 - `credentials/`: App ID/App Secret credential and n8n-managed expirable Stable Access Token.
-- `nodes/WechatOfficialAccount/WechatOfficialAccount.node.ts`: n8n UI and operation dispatch.
+- `nodes/WechatOfficialAccount/WechatOfficialAccountPlatform.node.ts`: registered n8n node identity and UI metadata.
+- `nodes/WechatOfficialAccount/WechatOfficialAccount.node.ts`: shared operation implementation used by the registered platform node.
 - `nodes/WechatOfficialAccount/payloads.ts`: article payload mapping.
 - `nodes/WechatOfficialAccount/transport/TokenManager.ts`: recovery token cache for explicit WeChat token rejection.
 - `nodes/WechatOfficialAccount/transport/WechatClient.ts`: fixed-host HTTP transport, bounded token recovery, read retries, and multipart uploads.
@@ -23,7 +24,7 @@ There is one normal token lifecycle:
 4. A recovered token is kept only in process memory for its reported lifetime minus a five-minute margin. Forced rotations are kept at least 30 seconds apart in-process.
 5. Tokens, App Secrets, article bodies, and binary media are never written to workflow JSON or logs.
 
-The credential uses n8n's `restrictToSupportedNodes` mechanism and is restricted to the package node short name `wechatOfficialAccount`. It is not exposed as a generic HTTP Request credential.
+The credential uses n8n's `restrictToSupportedNodes` mechanism and is restricted to the package node short name `wechatOfficialAccountPlatform`. The short name is intentionally unique across community packages because n8n stores `installed_nodes.name` as a global primary key. It is not exposed as a generic HTTP Request credential.
 
 ## API surface
 
