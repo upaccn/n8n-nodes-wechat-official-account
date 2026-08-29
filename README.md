@@ -1,79 +1,140 @@
-# n8n-nodes-wechat-official-account
+# n8n 微信公众号节点
 
-A production-oriented n8n community node for WeChat Official Accounts (微信公众号).
+一个面向生产环境的 n8n 微信公众号（WeChat Official Account）社区节点。
 
-The project focuses on reliable content automation: image/media upload, draft management, and publishing. It is a clean implementation built for current n8n community-node tooling rather than a fork of older community packages.
+项目聚焦公众号内容自动化中最常用、最稳定的能力：**图片素材、草稿管理、发布管理**。代码基于当前 n8n 社区节点规范重新实现，不是旧社区项目的 Fork，也不保留不必要的兼容层和通用 API 兜底。
 
-## Status
+## 功能
 
-`0.1.x` is the initial validation series. Test in a non-production workflow before replacing an existing WeChat integration.
+### 图片与素材
 
-## V1 features
+- 上传正文图片（`/cgi-bin/media/uploadimg`）
+- 上传永久图片素材（`/cgi-bin/material/add_material`）
 
-### Media
-- Upload Article Image (`/cgi-bin/media/uploadimg`)
-- Upload Permanent Image (`/cgi-bin/material/add_material`)
+节点直接接收 n8n Binary 数据。如果图片来自 URL，建议先使用 n8n 的 HTTP Request 节点下载为 Binary，再交给本节点上传。
 
-Media input is n8n binary data. Downloading remote URLs is intentionally left to n8n's HTTP Request node.
+### 草稿管理
 
-### Draft
-- Create
-- Get
-- Get Many
-- Update
-- Delete
+- 创建草稿
+- 获取草稿
+- 获取草稿列表
+- 更新草稿
+- 删除草稿
 
-Draft creation supports multiple ordinary rich-text articles and the common fields `title`, `author`, `digest`, `content`, `content_source_url`, `thumb_media_id`, `show_cover_pic`, `need_open_comment`, and `only_fans_can_comment`. The node explicitly sends `article_type: "news"`. The structurally different `newspic` mode is intentionally deferred until it earns a first-class implementation.
+支持单图文和多图文草稿，常用字段包括：
 
-### Publish
-- Submit
-- Get Status
-- Get
-- Get Many
-- Delete
+- 标题 `title`
+- 作者 `author`
+- 摘要 `digest`
+- 正文 HTML `content`
+- 原文链接 `content_source_url`
+- 封面素材 ID `thumb_media_id`
+- 正文显示封面 `show_cover_pic`
+- 开启评论 `need_open_comment`
+- 仅粉丝可评论 `only_fans_can_comment`
+- 2.35:1 / 1:1 封面裁剪参数
 
-Publish API availability depends on the target account's current WeChat interface permissions. Personal-subject, unverified, or otherwise non-verifiable accounts may still use draft/material APIs while `freepublish/*` returns `48001`. Check the account's interface permissions before designing unattended publishing.
+普通图文会显式发送 `article_type: "news"`。
 
-Scheduling and approval are intentionally implemented at the workflow layer rather than hidden inside this node.
+### 发布管理
 
-## Not included in V1
+- 提交发布
+- 查询发布状态
+- 获取已发布文章
+- 获取已发布文章列表
+- 删除已发布文章
 
-Trigger/Response nodes, webhook message handling, AES message encryption/decryption, menus, followers, tags, template messages, customer service, comments, analytics, and QR-code management are deliberately out of scope until real workflow demand justifies them.
+> 微信公众号的 `freepublish/*` 接口权限与草稿接口权限并不完全相同。个人主体、未认证或不具备相应发布权限的账号，可能可以正常使用草稿接口，但调用发布接口时返回 `48001`。请以公众号后台实际显示的接口权限为准。
 
-## Credentials
+定时、审批和人工确认应由 n8n Workflow 负责，本节点不在内部隐藏调度逻辑。
 
-Create a **WeChat Official Account API** credential with:
+## V1 暂不包含
+
+为了保持节点简单、稳定，V1 暂不提供：
+
+- 消息 Trigger / Response
+- 公众号回调 Webhook
+- AES 消息加解密
+- 自定义菜单
+- 用户与标签管理
+- 模板消息
+- 客服消息
+- 评论管理
+- 数据分析
+- 二维码管理
+
+这些能力只有在出现稳定、重复的真实使用需求后，才会作为正式 Operation 加入。
+
+## 凭据配置
+
+在 n8n 中创建 **WeChat Official Account API** Credential，只需要：
 
 - App ID
 - App Secret
 
-WeChat server-side APIs also require the production egress IP to be allowed in the account's API IP whitelist. Error `40164` is surfaced with a targeted whitelist hint.
+App Secret 以密码字段保存。
 
-The App Secret is stored as a password credential. The node obtains access tokens through WeChat's stable-token endpoint and keeps a short-lived in-memory cache with a five-minute refresh margin. If WeChat explicitly returns a token error such as `40001`, `40014`, `42001`, or `42007`, the node recovers the stable token and retries the rejected API call once. Forced rotations are throttled to at least 30 seconds in-process; recovery requests inside that cooldown ask for the current stable token without forcing another rotation.
+微信公众号服务端 API 还要求调用服务器的出口 IP 已加入公众号后台的 API IP 白名单。如果微信返回 `40164`，节点会给出针对性的白名单错误提示。
 
-This node does **not** expose its credential as a generic HTTP Request credential. n8n owns the normal credential token lifecycle, while the node handles WeChat-specific token rejection in HTTP 200 JSON responses and performs one bounded stable-token recovery when needed.
+### Access Token
 
-## Retry safety
+节点使用微信 Stable Access Token：
 
-- Read/idempotent operations may retry transient transport failures with bounded backoff.
-- Explicit WeChat token errors trigger one stable-token refresh and one retry because the API rejected the original operation.
-- Non-idempotent writes are **not** replayed after an unknown network result. This prevents duplicate drafts, materials, or publish submissions.
+- 正常 Token 生命周期交给 n8n Credential 管理；
+- 微信经常通过 HTTP 200 + JSON `errcode` 返回 Token 失效，而不是 HTTP 401；
+- 遇到 `40001`、`40014`、`42001`、`42007` 等明确 Token 错误时，节点会执行一次 Stable Token 恢复，并且只重试一次原请求；
+- 强制刷新在同一进程内至少间隔 30 秒，避免反复刷新；
+- Access Token 不写入 Workflow JSON、节点输出或日志。
 
-## Output and item linking
+## 重试策略
 
-Each successful output preserves the input JSON and places the WeChat response under `wechat`. `pairedItem` is set for every input item so downstream n8n expressions keep their lineage. With Continue On Fail enabled, failures return a sanitized `wechatError.message`.
+这个项目不会简单地“失败就重试三次”。
 
-## Installation
+- **读取类 / 幂等操作**：仅对网络异常、HTTP 429、HTTP 5xx 做有限退避重试；
+- **明确 Token 失效**：恢复 Token 后重试一次，因为微信已经明确拒绝了原请求；
+- **创建草稿、上传素材、提交发布等写操作**：如果网络结果未知，默认不自动重放，避免产生重复草稿、重复素材或重复发布。
 
-After the package is published to npm, install `n8n-nodes-wechat-official-account` through n8n Community Nodes or your managed community-package deployment process. Pin an exact package version in production.
+## 输出结构
 
-## Compatibility
+每个输入 Item 对应一个输出 Item，并保留正确的 `pairedItem` 关系。
 
-The initial `0.1.0` release is developed and validated with Node.js 24.18.0, `@n8n/node-cli` 0.45.5, and `n8n-workflow` 2.36.4. The package declares Node.js 22 or later and follows the current strict n8n community-node format. When upgrading n8n materially, re-run the package test/lint/build gates before production rollout.
+原始输入 JSON 会保留，微信 API 的响应统一放在：
 
-## Development
+```text
+$json.wechat
+```
 
-Requires Node.js 22 or later.
+例如创建草稿成功后：
+
+```text
+$json.wechat.media_id
+```
+
+如果开启 n8n 的 Continue On Fail，错误信息会通过经过脱敏的 `wechatError.message` 返回。
+
+## 安装
+
+发布到 npm 后，可以在 n8n 的 Community Nodes 中安装：
+
+```text
+n8n-nodes-wechat-official-account
+```
+
+生产环境建议固定精确版本，不要依赖浮动的 `latest`。
+
+## 兼容性
+
+首个 `0.1.0` 版本基于以下环境开发和验证：
+
+- Node.js 24.18.0
+- `@n8n/node-cli` 0.45.5
+- `n8n-workflow` 2.36.4
+
+包要求 Node.js 22 或更高版本，并遵循当前 n8n strict community-node 规范。
+
+如果 n8n 进行较大版本升级，建议先重新执行测试、Lint 和 Build，再升级生产环境中的节点版本。
+
+## 开发
 
 ```bash
 npm ci
@@ -82,20 +143,51 @@ npm run lint
 npm run build
 ```
 
-The project uses the current `@n8n/node-cli` build and verification conventions.
+项目使用当前 `@n8n/node-cli` 构建与校验体系。
 
-## Migration from older WeChat nodes
+## 从旧微信公众号节点迁移
 
-Run old and new packages side by side during migration. Duplicate the workflow, replace only the WeChat adapter nodes, create a new credential, and compare results before activation. Keep the previous workflow/package version available for immediate rollback until the new workflow completes a representative production observation period.
+建议新旧包短期并存，而不是直接覆盖：
 
-## Security
+1. 安装本节点；
+2. 新建对应公众号 Credential；
+3. 在 Workflow 中只替换微信公众号适配节点；
+4. 验证真实草稿/素材结果；
+5. 保留旧 Workflow 或旧版本作为回滚路径；
+6. 新版本稳定运行后，再删除旧社区节点。
 
-- Credentials, access tokens, article bodies, and binary payloads must never be logged.
-- API requests use the fixed `https://api.weixin.qq.com` host.
-- No external telemetry is implemented.
-- The node is intentionally not exposed directly as an AI tool. If an AI agent needs publishing capability, put a controlled n8n workflow in front of the node.
+## 安全设计
 
-See [SECURITY.md](SECURITY.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and the [WeChat API baseline](docs/WECHAT_API_BASELINE.md).
+- 不记录 App Secret、Access Token、文章正文和 Binary 内容；
+- API Host 固定为 `https://api.weixin.qq.com`；
+- 不提供任意 Raw API 调用入口；
+- 不包含外部 Telemetry；
+- 节点默认不直接作为 AI Tool 暴露给 Agent；如需 AI 自动操作公众号，建议由受控 n8n Workflow 作为权限边界。
+
+常见错误会提供更明确的诊断，例如：
+
+- `40164`：服务器出口 IP 未加入微信 API 白名单；
+- `45009`：接口调用额度不足；
+- `45011`：调用频率过高；
+- `48001`：当前公众号没有该接口权限。
+
+## 维护原则
+
+这个仓库长期遵循几个原则：
+
+- 生产优先；
+- 小核心；
+- 尽量使用 n8n 原生能力；
+- 不记录敏感信息；
+- 不隐藏业务逻辑；
+- 不为“可能有一天会用”提前增加接口；
+- 新能力先经过真实 Workflow 验证，再进入正式节点。
+
+更多技术细节：
+
+- [安全策略](SECURITY.md)
+- [架构说明](docs/ARCHITECTURE.md)
+- [微信公众号 API 基线](docs/WECHAT_API_BASELINE.md)
 
 ## License
 
