@@ -1,5 +1,6 @@
 dist
 node_modules
+LICENSE.md
 
 # Leftovers from the interrupted initial scaffold; not part of the package.
 credentials/WechatOfficialAccountApi.credentials.ts

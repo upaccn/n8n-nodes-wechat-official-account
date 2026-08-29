@@ -20,6 +20,9 @@
     "type": "git",
     "url": "https://github.com/upaccn/n8n-nodes-wechat-official-account.git"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22.0.0"
   },
